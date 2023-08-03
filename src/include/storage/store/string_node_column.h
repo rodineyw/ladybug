@@ -5,16 +5,19 @@
 namespace kuzu {
 namespace storage {
 
-struct VarSizedNodeColumnFunc {
+struct StringNodeColumnFunc {
     static void writeStringValuesToPage(
         uint8_t* frame, uint16_t posInFrame, common::ValueVector* vector, uint32_t posInVector);
 };
 
-class VarSizedNodeColumn : public NodeColumn {
+class StringNodeColumn : public NodeColumn {
 public:
-    VarSizedNodeColumn(common::LogicalType dataType,
-        const catalog::MetadataDAHInfo& metaDAHeaderInfo, BMFileHandle* dataFH,
-        BMFileHandle* metadataFH, BufferManager* bufferManager, WAL* wal);
+    StringNodeColumn(common::LogicalType dataType, const catalog::MetadataDAHInfo& metaDAHeaderInfo,
+        BMFileHandle* dataFH, BMFileHandle* metadataFH, BufferManager* bufferManager, WAL* wal);
+
+    void scan(transaction::Transaction* transaction, common::node_group_idx_t nodeGroupIdx,
+        common::offset_t startOffsetInGroup, common::offset_t endOffsetInGroup,
+        common::ValueVector* resultVector, uint64_t offsetInVector = 0) final;
 
 protected:
     void scanInternal(transaction::Transaction* transaction, common::ValueVector* nodeIDVector,
@@ -25,9 +28,6 @@ protected:
 private:
     void readStringValueFromOvf(transaction::Transaction* transaction, common::ku_string_t& kuStr,
         common::ValueVector* resultVector, common::page_idx_t chunkStartPageIdx);
-    void readListValueFromOvf(transaction::Transaction* transaction, common::ku_list_t kuList,
-        common::ValueVector* resultVector, uint64_t posInVector,
-        common::page_idx_t chunkStartPageIdx);
 
 private:
     common::page_idx_t ovfPageIdxInChunk;

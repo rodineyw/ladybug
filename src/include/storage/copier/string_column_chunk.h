@@ -6,9 +6,9 @@
 namespace kuzu {
 namespace storage {
 
-class VarSizedColumnChunk : public ColumnChunk {
+class StringColumnChunk : public ColumnChunk {
 public:
-    VarSizedColumnChunk(common::LogicalType dataType, common::CopyDescription* copyDescription);
+    StringColumnChunk(common::LogicalType dataType, common::CopyDescription* copyDescription);
 
     void resetToEmpty() final;
     void append(
@@ -36,35 +36,29 @@ private:
     template<typename T>
     void templateCopyVarSizedValuesFromString(
         arrow::Array* array, common::offset_t startPosInChunk, uint32_t numValuesToAppend);
-    void copyValuesFromVarList(
-        arrow::Array* array, common::offset_t startPosInChunk, uint32_t numValuesToAppend);
 
-    void appendStringColumnChunk(VarSizedColumnChunk* other, common::offset_t startPosInOtherChunk,
+    void appendStringColumnChunk(StringColumnChunk* other, common::offset_t startPosInOtherChunk,
         common::offset_t startPosInChunk, uint32_t numValuesToAppend);
-    void appendVarListColumnChunk(VarSizedColumnChunk* other, common::offset_t startPosInOtherChunk,
-        common::offset_t startPosInChunk, uint32_t numValuesToAppend);
+
+    void write(const common::Value& val, uint64_t posToWrite) override;
 
 private:
     std::unique_ptr<InMemOverflowFile> overflowFile;
     PageByteCursor overflowCursor;
 };
 
-// BOOL
+// BLOB
 template<>
-void VarSizedColumnChunk::setValueFromString<common::blob_t>(
+void StringColumnChunk::setValueFromString<common::blob_t>(
     const char* value, uint64_t length, uint64_t pos);
 // STRING
 template<>
-void VarSizedColumnChunk::setValueFromString<common::ku_string_t>(
-    const char* value, uint64_t length, uint64_t pos);
-// VAR_LIST
-template<>
-void VarSizedColumnChunk::setValueFromString<common::ku_list_t>(
+void StringColumnChunk::setValueFromString<common::ku_string_t>(
     const char* value, uint64_t length, uint64_t pos);
 
 // STRING
 template<>
-std::string VarSizedColumnChunk::getValue<std::string>(common::offset_t pos) const;
+std::string StringColumnChunk::getValue<std::string>(common::offset_t pos) const;
 
 } // namespace storage
 } // namespace kuzu
