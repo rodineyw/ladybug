@@ -321,10 +321,25 @@ jobs:
   build-nodejs:
     if: ${{ github.event_name == 'schedule' || github.event.inputs.skipNodejs != 'true' }}
     needs: [build-precompiled-bin]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node-version: "22"
+            artifact-suffix: ""
+            experimental: false
+          - node-version: "20"
+            artifact-suffix: "-node20"
+            experimental: false
+          - node-version: "24"
+            artifact-suffix: "-node24"
+            experimental: true
     uses: ./.github/workflows/nodejs-workflow.yml
     with:
       isNightly: ${{ github.event_name == 'schedule' || github.event.inputs.isNightly == 'true' }}
       precompiledRunId: ${{ github.run_id }}
+      nodeVersion: ${{ matrix.node-version }}
+      artifactSuffix: ${{ matrix.artifact-suffix }}
     secrets: inherit
 
   deploy-nodejs:

@@ -7,6 +7,11 @@ on:
         description: "Run ID of the precompiled-bin job whose artifacts should be used"
         required: true
         type: string
+      nodeVersion:
+        description: "Node.js version used to build/test this workflow"
+        required: false
+        default: "22"
+        type: string
   workflow_call:
     inputs:
       isNightly:
@@ -16,6 +21,14 @@ on:
       precompiledRunId:
         type: string
         required: true
+      nodeVersion:
+        type: string
+        required: false
+        default: "22"
+      artifactSuffix:
+        type: string
+        required: false
+        default: ""
 
 jobs:
   build-nodejs:
@@ -56,6 +69,13 @@ jobs:
             node_name: lbugjs-win32-x64.node
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.nodeVersion }}
+          cache: npm
+          cache-dependency-path: tools/nodejs_api/package-lock.json
 
       - name: Update submodules
         run: git submodule update --init --recursive tools/nodejs_api dataset
@@ -213,7 +233,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ format('{0}{1}', matrix.artifact_name, inputs.artifactSuffix) }}
           path: tools/nodejs_api/${{ matrix.platform == 'win32' && 'build/' || '' }}${{ matrix.node_name }}
 
       - name: Clean up
