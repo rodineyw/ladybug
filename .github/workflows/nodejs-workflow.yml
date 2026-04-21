@@ -77,8 +77,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.nodeVersion }}
-          cache: npm
-          cache-dependency-path: tools/nodejs_api/package-lock.json
 
       - name: Install GCC 13 (Linux)
         if: ${{ matrix.platform == 'linux' }}
