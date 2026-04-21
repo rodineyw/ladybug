@@ -73,7 +73,14 @@ jobs:
       - name: Update submodules
         run: git submodule update --init --recursive tools/nodejs_api dataset
 
-      - name: Set up Node.js
+      - name: Set up Node.js (with npm cache)
+        if: ${{ hashFiles('tools/nodejs_api/package-lock.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.nodeVersion }}
+
+      - name: Set up Node.js (without npm cache)
+        if: ${{ hashFiles('tools/nodejs_api/package-lock.json') == '' }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.nodeVersion }}
