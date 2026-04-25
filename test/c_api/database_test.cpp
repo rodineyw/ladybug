@@ -92,6 +92,20 @@ TEST_F(CApiDatabaseTest, CreationInMemory) {
     lbug_database_destroy(&database);
 }
 
+TEST_F(CApiDatabaseTest, CreationWithEnableMultiWrites) {
+    lbug_database database;
+    auto systemConfig = defaultSystemConfig;
+    systemConfig.enable_multi_writes = true;
+
+    auto state = lbug_database_init(databasePath.c_str(), systemConfig, &database);
+    ASSERT_EQ(state, LbugSuccess);
+    ASSERT_NE(database._database, nullptr);
+
+    auto databaseCpp = static_cast<Database*>(database._database);
+    ASSERT_TRUE(databaseCpp->getConfig().enableMultiWrites);
+    lbug_database_destroy(&database);
+}
+
 #ifndef __WASM__ // home directory is not available in WASM
 TEST_F(CApiDatabaseTest, CreationHomeDir) {
     lbug_database database;

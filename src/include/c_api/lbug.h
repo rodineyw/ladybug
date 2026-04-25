@@ -136,6 +136,8 @@ typedef struct {
     bool throw_on_wal_replay_failure;
     // If true, checksums are enabled for WAL and storage pages.
     bool enable_checksums;
+    // If true, multiple concurrent write transactions are allowed.
+    bool enable_multi_writes;
 
 #if defined(__APPLE__)
     // The thread quality of service (QoS) for the worker threads.
