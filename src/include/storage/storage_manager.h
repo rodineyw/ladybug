@@ -31,8 +31,7 @@ struct DatabaseHeader;
 class LBUG_API StorageManager {
 public:
     StorageManager(const std::string& databasePath, bool readOnly, bool enableChecksums,
-        MemoryManager& memoryManager, bool enableCompression, bool enableDefaultHashIndex,
-        common::VirtualFileSystem* vfs);
+        MemoryManager& memoryManager, bool enableCompression, common::VirtualFileSystem* vfs);
     ~StorageManager();
 
     Table* getTable(common::table_id_t tableID);
@@ -62,8 +61,6 @@ public:
     bool isReadOnly() const { return readOnly; }
     bool compressionEnabled() const { return enableCompression; }
     bool isInMemory() const { return inMemory; }
-    bool defaultHashIndexEnabled() const { return enableDefaultHashIndex; }
-    void setDefaultHashIndexEnabled(bool enabled) { enableDefaultHashIndex = enabled; }
 
     void registerIndexType(IndexType indexType) {
         registeredIndexTypes.push_back(std::move(indexType));
@@ -111,7 +108,6 @@ private:
     std::unique_ptr<WAL> wal;
     std::unique_ptr<ShadowFile> shadowFile;
     bool enableCompression;
-    bool enableDefaultHashIndex;
     bool inMemory;
     std::vector<IndexType> registeredIndexTypes;
     std::unordered_map<common::table_id_t, std::string> tableNameCache;

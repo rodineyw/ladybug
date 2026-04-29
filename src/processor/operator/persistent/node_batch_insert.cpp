@@ -3,7 +3,6 @@
 #include "catalog/catalog.h"
 #include "catalog/catalog_entry/node_table_catalog_entry.h"
 #include "common/cast.h"
-#include "common/exception/runtime.h"
 #include "common/finally_wrapper.h"
 #include "processor/execution_context.h"
 #include "processor/operator/persistent/index_builder.h"
@@ -32,18 +31,12 @@ std::string NodeBatchInsertPrintInfo::toString() const {
 }
 
 void NodeBatchInsertSharedState::initPKIndex(const ExecutionContext* context) {
-    auto* nodeTable = dynamic_cast_checked<NodeTable*>(table);
-    auto* pkIndex = nodeTable->tryGetPKIndex();
-    if (!pkIndex) {
-        throw RuntimeException(
-            "COPY into node tables requires enable_default_hash_index=true for primary-key "
-            "validation.");
-    }
     uint64_t numRows = 0;
     if (tableFuncSharedState != nullptr) {
         numRows = tableFuncSharedState->getNumRows();
     }
-    pkIndex->bulkReserve(numRows);
+    auto* nodeTable = dynamic_cast_checked<NodeTable*>(table);
+    nodeTable->getPKIndex()->bulkReserve(numRows);
     globalIndexBuilder = IndexBuilder(std::make_shared<IndexBuilderSharedState>(
         Transaction::Get(*context->clientContext), nodeTable));
 }

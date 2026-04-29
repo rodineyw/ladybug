@@ -136,8 +136,7 @@ void DatabaseManager::createGraph(const std::string& graphName,
                          ":" + graphName :
                          storage::StorageUtils::getGraphPath(dbPath, graphName);
     auto storageManager = std::make_unique<storage::StorageManager>(graphPath, false, false,
-        *memoryManager, false, clientContext->getDBConfig()->enableDefaultHashIndex,
-        common::VirtualFileSystem::GetUnsafe(*clientContext));
+        *memoryManager, false, common::VirtualFileSystem::GetUnsafe(*clientContext));
     storageManager->initDataFileHandle(common::VirtualFileSystem::GetUnsafe(*clientContext),
         clientContext);
     catalog->setStorageManager(std::move(storageManager));
@@ -317,7 +316,7 @@ void DatabaseManager::loadGraphsFromCatalog(storage::MemoryManager* memoryManage
         }
 
         auto storageManager = std::make_unique<storage::StorageManager>(graphPath, false, false,
-            *memoryManager, false, clientContext->getDBConfig()->enableDefaultHashIndex, vfs);
+            *memoryManager, false, vfs);
         storageManager->initDataFileHandle(vfs, clientContext);
         catalog->setStorageManager(std::move(storageManager));
 

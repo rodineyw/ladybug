@@ -11,7 +11,6 @@
 #include "storage/local_storage/local_node_table.h"
 #include "storage/local_storage/local_storage.h"
 #include "storage/local_storage/local_table.h"
-#include "storage/predicate/constant_predicate.h"
 #include "storage/storage_manager.h"
 #include "storage/wal/local_wal.h"
 #include "transaction/transaction.h"
@@ -246,10 +245,8 @@ NodeTable::NodeTable(const StorageManager* storageManager,
         {pkColumnID}, {pkDefinition.getType().getPhysicalType()},
         hashIndexType.constraintType == IndexConstraintType::PRIMARY,
         hashIndexType.definitionType == IndexDefinitionType::BUILTIN};
-    if (storageManager->defaultHashIndexEnabled()) {
-        indexes.push_back(IndexHolder{PrimaryKeyIndex::createNewIndex(indexInfo,
-            storageManager->isInMemory(), *mm, pageAllocator, shadowFile)});
-    }
+    indexes.push_back(IndexHolder{PrimaryKeyIndex::createNewIndex(indexInfo,
+        storageManager->isInMemory(), *mm, pageAllocator, shadowFile)});
     nodeGroups = std::make_unique<NodeGroupCollection>(*mm,
         LocalNodeTable::getNodeTableColumnTypes(*nodeTableEntry), enableCompression,
         storageManager->getDataFH() ? ResidencyState::ON_DISK : ResidencyState::IN_MEMORY,
@@ -384,7 +381,8 @@ offset_t NodeTable::validateUniquenessConstraint(const Transaction* transaction,
     DASSERT(pkVector->state->getSelVector().getSelSize() == 1);
     const auto pkVectorPos = pkVector->state->getSelVector()[0];
     if (offset_t offset = INVALID_OFFSET;
-        lookupPK(transaction, propertyVectors[pkColumnID], pkVectorPos, offset)) {
+        getPKIndex()->lookup(transaction, propertyVectors[pkColumnID], pkVectorPos, offset,
+            [&](offset_t offset_) { return isVisible(transaction, offset_); })) {
         return offset;
     }
     if (const auto localTable = transaction->getLocalStorage()->getLocalTable(tableID)) {
@@ -401,7 +399,8 @@ void NodeTable::validatePkNotExists(const Transaction* transaction, ValueVector*
     if (pkVector->isNull(selVector[0])) {
         throw RuntimeException(ExceptionMessage::nullPKException());
     }
-    if (lookupPK(transaction, pkVector, selVector[0], dummyOffset)) {
+    if (getPKIndex()->lookup(transaction, pkVector, selVector[0], dummyOffset,
+            [&](offset_t offset) { return isVisible(transaction, offset); })) {
         throw RuntimeException(
             ExceptionMessage::duplicatePKException(pkVector->getAsValue(selVector[0])->toString()));
     }
@@ -477,7 +476,8 @@ void NodeTable::update(Transaction* transaction, TableUpdateState& updateState) 
     if (nodeUpdateState.nodeIDVector.isNull(pos)) {
         return;
     }
-    if (nodeUpdateState.columnID == pkColumnID) {
+    const auto pkIndex = getPKIndex();
+    if (nodeUpdateState.columnID == pkColumnID && pkIndex) {
         throw RuntimeException("Cannot update pk.");
     }
     const auto nodeOffset = nodeUpdateState.nodeIDVector.readNodeOffset(pos);
@@ -701,14 +701,10 @@ bool NodeTable::checkpoint(main::ClientContext* context, TableCatalogEntry* tabl
 
 void NodeTable::rollbackPKIndexInsert(main::ClientContext* context, row_idx_t startRow,
     row_idx_t numRows_, node_group_idx_t nodeGroupIdx_) {
-    auto* pkIndex = tryGetPKIndex();
-    if (!pkIndex) {
-        return;
-    }
     const row_idx_t startNodeOffset =
         startRow + StorageUtils::getStartOffsetOfNodeGroup(nodeGroupIdx_);
 
-    RollbackPKDeleter pkDeleter{startNodeOffset, numRows_, this, pkIndex};
+    RollbackPKDeleter pkDeleter{startNodeOffset, numRows_, this, getPKIndex()};
     scanIndexColumns(context, pkDeleter, *nodeGroups);
 }
 
@@ -725,9 +721,7 @@ void NodeTable::rollbackCheckpoint() {
 
 void NodeTable::reclaimStorage(PageAllocator& pageAllocator) const {
     nodeGroups->reclaimStorage(pageAllocator);
-    if (auto* pkIndex = tryGetPKIndex()) {
-        pkIndex->reclaimStorage(pageAllocator);
-    }
+    getPKIndex()->reclaimStorage(pageAllocator);
 }
 
 TableStats NodeTable::getStats(const Transaction* transaction) const {
@@ -754,14 +748,6 @@ bool NodeTable::isVisibleNoLock(const Transaction* transaction, offset_t offset)
     return nodeGroup->isVisibleNoLock(transaction, offsetInGroup);
 }
 
-PrimaryKeyIndex* NodeTable::tryGetPKIndex() const {
-    const auto index = getIndex(PrimaryKeyIndex::DEFAULT_NAME);
-    if (!index.has_value()) {
-        return nullptr;
-    }
-    return &index.value()->cast<PrimaryKeyIndex>();
-}
-
 bool NodeTable::lookupPK(const Transaction* transaction, ValueVector* keyVector, uint64_t vectorPos,
     offset_t& result) const {
     if (transaction->getLocalStorage()) {
@@ -771,61 +757,8 @@ bool NodeTable::lookupPK(const Transaction* transaction, ValueVector* keyVector,
             return true;
         }
     }
-    if (auto* pkIndex = tryGetPKIndex()) {
-        return pkIndex->lookup(transaction, keyVector, vectorPos, result,
-            [&](offset_t offset) { return isVisibleNoLock(transaction, offset); });
-    }
-    auto keyToLookup = keyVector->getAsValue(vectorPos);
-    ColumnPredicateSet predicateSet;
-    predicateSet.addPredicate(std::make_unique<ColumnConstantPredicate>(
-        std::string{getColumn(pkColumnID).getName()}, ExpressionType::EQUALS, *keyToLookup));
-    std::vector<ColumnPredicateSet> predicateSets;
-    predicateSets.push_back(std::move(predicateSet));
-    return scanPKColumn(transaction, *keyToLookup, std::move(predicateSets), result);
-}
-
-bool NodeTable::scanPKColumn(const Transaction* transaction, const Value& keyToLookup,
-    std::vector<ColumnPredicateSet> columnPredicateSets, offset_t& result) const {
-    auto dataChunk = constructDataChunkForColumns({pkColumnID});
-    std::vector<ValueVector*> outVectors = {&dataChunk.getValueVectorMutable(0)};
-    auto scanState =
-        std::make_unique<NodeTableScanState>(nullptr, std::move(outVectors), dataChunk.state);
-    scanState->source = TableScanSource::COMMITTED;
-    scanState->setToTable(transaction, const_cast<NodeTable*>(this), {pkColumnID},
-        std::move(columnPredicateSets));
-    const auto numNodeGroups = nodeGroups->getNumNodeGroupsNoLock();
-    for (node_group_idx_t nodeGroupIdx = 0; nodeGroupIdx < numNodeGroups; ++nodeGroupIdx) {
-        auto* nodeGroup = nodeGroups->getNodeGroupNoLock(nodeGroupIdx);
-        if (nodeGroup->getNumChunkedGroups() == 0) {
-            continue;
-        }
-        scanState->nodeGroup = nodeGroup;
-        scanState->nodeGroupIdx = nodeGroupIdx;
-        nodeGroup->initializeScanState(transaction, *scanState);
-        while (true) {
-            const auto scanResult = nodeGroup->scan(transaction, *scanState);
-            if (scanResult == NODE_GROUP_SCAN_EMPTY_RESULT) {
-                break;
-            }
-            auto* scannedVector = scanState->outputVectors[0];
-            for (idx_t i = 0; i < scannedVector->state->getSelSize(); ++i) {
-                const auto pos = scannedVector->state->getSelVector()[i];
-                if (scannedVector->isNull(pos)) {
-                    continue;
-                }
-                if (!(*scannedVector->getAsValue(pos) == keyToLookup)) {
-                    continue;
-                }
-                const auto offset = StorageUtils::getStartOffsetOfNodeGroup(nodeGroupIdx) +
-                                    scanResult.startRow + pos;
-                if (isVisibleNoLock(transaction, offset)) {
-                    result = offset;
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
+    return getPKIndex()->lookup(transaction, keyVector, vectorPos, result,
+        [&](offset_t offset) { return isVisibleNoLock(transaction, offset); });
 }
 
 void NodeTable::scanIndexColumns(main::ClientContext* context, IndexScanHelper& scanHelper,
