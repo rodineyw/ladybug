@@ -15,7 +15,7 @@ struct StorageVersionInfo {
     static std::unordered_map<std::string, storage_version_t> getStorageVersionInfo() {
         return {{"0.12.0", 40}, {"0.12.2", 40}, {"0.13.0", 40}, {"0.13.1", 40}, {"0.14.0", 40},
             {"0.14.1", 40}, {"0.15.0", 40}, {"0.15.1", 40}, {"0.15.2", 40}, {"0.15.3", 40},
-            {"0.15.4", 40}, {"0.16.0", 40}};
+            {"0.15.4", 40}, {"0.16.0", 40}, {"0.16.1", 40}};
     }
 
     static LBUG_API storage_version_t getStorageVersion();
