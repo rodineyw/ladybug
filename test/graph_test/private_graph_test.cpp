@@ -1,10 +1,11 @@
 #include "graph_test/private_graph_test.h"
 
-#include <fstream>
-
 #include "common/exception/test.h"
+#include "common/file_system/local_file_system.h"
+#include "common/serializer/buffered_file.h"
 #include "graph_test/base_graph_test.h"
 #include "spdlog/spdlog.h"
+#include "storage/database_header.h"
 #include "storage/storage_manager.h"
 #include "test_runner/fsm_leak_checker.h"
 #include "test_runner/insert_by_row.h"
@@ -57,35 +58,30 @@ static void removeFile(const std::string& path) {
 }
 
 static uint64_t readStorageVersionFromHeader(const std::string& databasePath) {
-    std::ifstream dbFile{databasePath, std::ios::binary};
-    if (!dbFile.is_open()) {
-        throw TestException("Failed to open database file: " + databasePath);
+    auto localFileSystem = common::LocalFileSystem("");
+    auto fileInfo =
+        localFileSystem.openFile(databasePath, common::FileOpenFlags(common::FileFlags::READ_ONLY));
+    auto databaseHeader = DatabaseHeader::readDatabaseHeader(*fileInfo);
+    if (!databaseHeader.has_value()) {
+        throw TestException("Invalid database header: " + databasePath);
     }
-    char magic[5];
-    dbFile.read(magic, 4);
-    magic[4] = '\0';
-    if (std::string(magic) != "LBUG") {
-        throw TestException("Invalid database magic bytes: " + databasePath);
-    }
-    uint64_t storageVersion = 0;
-    dbFile.read(reinterpret_cast<char*>(&storageVersion), sizeof(storageVersion));
-    return storageVersion;
+    return databaseHeader->storageVersion;
 }
 
 static void writeStorageVersionToHeader(const std::string& databasePath, uint64_t storageVersion) {
-    std::fstream dbFile{databasePath, std::ios::in | std::ios::out | std::ios::binary};
-    if (!dbFile.is_open()) {
-        throw TestException("Failed to open database file: " + databasePath);
+    auto localFileSystem = common::LocalFileSystem("");
+    auto fileInfo = localFileSystem.openFile(databasePath,
+        common::FileOpenFlags(common::FileFlags::READ_ONLY | common::FileFlags::WRITE));
+    auto databaseHeader = DatabaseHeader::readDatabaseHeader(*fileInfo);
+    if (!databaseHeader.has_value()) {
+        throw TestException("Invalid database header: " + databasePath);
     }
-    char magic[5];
-    dbFile.read(magic, 4);
-    magic[4] = '\0';
-    if (std::string(magic) != "LBUG") {
-        throw TestException("Invalid database magic bytes: " + databasePath);
-    }
-    dbFile.seekp(4);
-    dbFile.write(reinterpret_cast<const char*>(&storageVersion), sizeof(storageVersion));
-    dbFile.flush();
+    databaseHeader->storageVersion = storageVersion;
+    auto writer = std::make_shared<common::BufferedFileWriter>(*fileInfo);
+    common::Serializer serializer{writer};
+    databaseHeader->serialize(serializer);
+    writer->flush();
+    writer->sync();
 }
 
 void DBTest::runTest(std::vector<TestStatement>& statements, uint64_t checkpointWaitTimeout,
